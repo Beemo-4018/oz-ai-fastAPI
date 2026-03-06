@@ -10,37 +10,43 @@ from fastapi import (
 )
 from typing import Optional
 from schema import UserSignUpRequest, UserResponse, UserUpdateRequest
-from db_connection import SessionFactory, getSession
+
+# from db_connection import SessionFactory, getSession
 from db_models import User
 from sqlalchemy import select
 from sendEmail import send_email
 from contextlib import asynccontextmanager
+from mysql_connection import getSession
+from async_mysql_connection import get_async_session
+
 
 @asynccontextmanager
 async def lifespan(_):
     # 서버 실행될 때, 실행되는 부분
-    limiter = anyio.to_thread.current_default_thread_limiter()
-    limiter.total_tokens = 200 # 스레드 풀 개수를 200개로 증량
+    # limiter = anyio.to_thread.current_default_thread_limiter()
+    # limiter.total_tokens = 200  # 스레드 풀 개수를 200개로 증량
     yield
     # 서버 종료될 때, 실행되는 부분
+
 
 # lifespan -> FastAPI 서버가 실행되고 종료될 때, 특정 리소스를 생성하고 정리하는 기능
 app = FastAPI(lifespan=lifespan)
 
 
-
-users: list[dict] = [
-    {"id": 1, "name": "Alice", "age": 30, "email": "alice@example.com"},
-    {"id": 2, "name": "Bob", "age": 25, "email": "bob@example.com"},
-    {"id": 3, "name": "Charlie", "age": 35, "email": "charlie@example.com"},
-    {"id": 4, "name": "David", "age": 40, "email": "david@example.com"},
-]
+@app.get("/")
+async def roo_hd():
+    return "test : good"
 
 
 @app.get("/users", status_code=status.HTTP_200_OK, response_model=list[UserResponse])
-def get_users_handlers(session=Depends(getSession)):
+async def get_users_handlers(
+    # Depends
+    # 요청시작 -> session 생성
+    # 응답 반환 -> session.close()
+    session=Depends(get_async_session),
+):
     stmt = select(User)
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     users = result.scalars().all()
     return users
 
@@ -51,16 +57,16 @@ def get_users_handlers(session=Depends(getSession)):
     status_code=status.HTTP_201_CREATED,
     response_model=UserResponse,
 )
-def signup_user_handler(
+async def signup_user_handler(
     body: UserSignUpRequest,
     background_tasks: BackgroundTasks,
-    session=Depends(getSession),
+    session=Depends(get_async_session),
 ):
     new_user = User(name=body.name, age=body.age, email=body.email)
 
     # DB 작업 단위
     session.add(new_user)  # 임시 저장
-    session.commit()  # DB에 저장
+    await session.commit()  # DB에 저장
 
     # 이메일 전송 작업 BT 등록
     background_tasks.add_task(send_email, body.name)
@@ -99,17 +105,17 @@ def get_user_handler(
 
 
 # 사용자 정보 수정 API
-@app.put("/users/{user_id}")
-def update_user_handler(
+@app.patch("/users/{user_id}")
+async def update_user_handler(
     body: UserUpdateRequest,
     user_id: int = Path(..., ge=1, description="사용자 ID는 1 이상이어야 합니다."),
-    session=Depends(getSession),
+    session=Depends(get_async_session),
 ):
     if body.name is None and body.age is None:
         raise HTTPException(status_code=400, detail="업데이트할 정보가 없습니다.")
 
     stmt = select(User).where(User.id == user_id)
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     user = result.scalar()
 
     if user is None:
@@ -122,7 +128,7 @@ def update_user_handler(
         user.name = body.name
     if body.age is not None:
         user.age = body.age
-    session.commit()
+    await session.commit()
 
     # 3) 업데이트된 사용자 정보 반환
     return user
@@ -130,12 +136,12 @@ def update_user_handler(
 
 # 사용자 삭제(회원탈퇴) API
 @app.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_user_handler(
+async def delete_user_handler(
     user_id: int = Path(..., ge=1, description="사용자 ID는 1 이상이어야 합니다."),
-    session=Depends(getSession),
+    session=Depends(get_async_session),
 ):
     stmt = select(User).where(User.id == user_id)
-    result = session.execute(stmt)
+    result = await session.execute(stmt)
     user = result.scalar()
 
     if user is None:
@@ -144,7 +150,7 @@ def delete_user_handler(
         )
 
     session.delete(user)
-    session.commit()
+    await session.commit()
     return None
 
 

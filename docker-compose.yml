@@ -1,0 +1,56 @@
+﻿services:
+  # 1. API 서버
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    ports:
+      - "80:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy # Redis가 준비되면 실행
+    volumes:
+      - ./api:/app
+
+  # 2. AI Worker (AI 모델 추론 담당)
+  worker:
+    # 오타 수정: workcer -> worker
+    build:
+      context: ./worker
+    depends_on:
+      - redis # Redis가 있어야 대기열(Queue)에서 일을 가져옴
+    volumes:
+      - ./worker:/app # Worker도 코드 수정 시 자동 반영되도록 볼륨 추가 추천
+
+  # 3. Redis (메시지 큐 및 캐시)
+  redis:
+    image: redis:latest # 현재 기준 안정 버전 사용
+    ports:
+      - "6379:6379"
+    healthcheck:
+      # Redis가 제대로 떴는지 확인하는 설정
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 4. MySQL 데이터베이스
+  db:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: "1234"
+      MYSQL_DATABASE: "oz"
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p1234" ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  mysql_data:

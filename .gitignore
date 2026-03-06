@@ -5,3 +5,7 @@ ENV/
 __pycache__/
 
 *.db
+
+models/
+
+*/.env
