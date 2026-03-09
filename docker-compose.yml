@@ -23,6 +23,7 @@
       - redis # Redis가 있어야 대기열(Queue)에서 일을 가져옴
     volumes:
       - ./worker:/app # Worker도 코드 수정 시 자동 반영되도록 볼륨 추가 추천
+      - ./worker/models:/models
 
   # 3. Redis (메시지 큐 및 캐시)
   redis:

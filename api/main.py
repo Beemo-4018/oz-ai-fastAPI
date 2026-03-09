@@ -1,5 +1,8 @@
 ﻿import anyio
+import uuid
+import json
 from fastapi import (
+    Body,
     FastAPI,
     Path,
     Query,
@@ -18,6 +21,9 @@ from sendEmail import send_email
 from contextlib import asynccontextmanager
 from mysql_connection import getSession
 from async_mysql_connection import get_async_session
+from redis import asyncio as aredis
+
+redis_client = aredis.from_url("redis://redis:6379", decode_responses=True)
 
 
 @asynccontextmanager
@@ -33,9 +39,26 @@ async def lifespan(_):
 app = FastAPI(lifespan=lifespan)
 
 
-@app.get("/")
-async def roo_hd():
-    return "test : good"
+# [1] 클라이언트에서 질문을 전달한다.
+@app.post("/chats", status_code=status.HTTP_202_ACCEPTED)
+async def chat_handler(question: str = Body(..., embed=True)):  # 1. embed 오타 수정
+    # 2. 결과 채널을 구독
+    job_id = str(uuid.uuid4())
+    channel = f"result:{job_id}"
+    pubsub = redis_client.pubsub()
+    await pubsub.subscribe(channel)
+
+    job = {"id": job_id, "question": question}
+
+    # 3. 답변 생성 작접 enqueue
+    await redis_client.lpush("inference_queue", json.dumps(job))
+
+    async for message in pubsub.listen():
+        if message["type"] == "message":
+            result = message["data"]
+            break
+
+    return {"result": result}
 
 
 @app.get("/users", status_code=status.HTTP_200_OK, response_model=list[UserResponse])
